@@ -234,10 +234,25 @@ function setupSocketEventListeners() {
             const state = existingPeer.signalingState;
             console.log('Текущее состояние соединения:', state);
             
-            // Если соединение уже установлено (stable), это нормально - игнорируем
+            // Если соединение уже установлено (stable), проверяем remote description
             if (state === 'stable') {
-                console.log('Соединение уже установлено (stable) для:', sender, '- игнорируем новое предложение');
-                return;
+                const remoteDesc = existingPeer.remoteDescription;
+                if (remoteDesc) {
+                    console.log('Соединение уже установлено (stable) для:', sender, '- игнорируем новое предложение');
+                    return;
+                } else {
+                    console.warn('⚠️ Соединение stable, но remote description null! Пересоздаем соединение для:', sender);
+                    existingPeer.close();
+                    peers.delete(sender);
+                    // Также удаляем audio элемент
+                    if (audioElements && audioElements.has(sender)) {
+                        const audio = audioElements.get(sender);
+                        audio.pause();
+                        audio.srcObject = null;
+                        audioElements.delete(sender);
+                    }
+                    // Продолжаем обработку offer ниже
+                }
             }
             
             // Если в процессе установки, пересоздаем только если нужно
@@ -269,6 +284,20 @@ function setupSocketEventListeners() {
             console.log('📤 Установка remote description (offer) от:', sender);
             await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
             console.log('✅ Remote description установлен, состояние:', peerConnection.signalingState);
+            
+            // Добавляем сохраненные ICE кандидаты, если есть
+            if (peerConnection.pendingIceCandidates && peerConnection.pendingIceCandidates.length > 0) {
+                console.log('💾 Добавляем сохраненные ICE кандидаты:', peerConnection.pendingIceCandidates.length);
+                for (const candidate of peerConnection.pendingIceCandidates) {
+                    try {
+                        await peerConnection.addIceCandidate(candidate);
+                        console.log('✅ Сохраненный ICE кандидат добавлен');
+                    } catch (error) {
+                        console.error('❌ Ошибка добавления сохраненного ICE кандидата:', error);
+                    }
+                }
+                peerConnection.pendingIceCandidates = [];
+            }
             
             console.log('📤 Создание answer для:', sender);
             const answer = await peerConnection.createAnswer();
@@ -346,6 +375,20 @@ function setupSocketEventListeners() {
         if (peerConnection) {
             console.log('🧊 Текущее состояние peer connection:', peerConnection.signalingState);
             console.log('🧊 Текущее состояние ICE:', peerConnection.iceConnectionState);
+            console.log('🧊 Remote description:', peerConnection.remoteDescription ? 'установлен' : 'null');
+            
+            // Проверяем, установлен ли remote description
+            if (!peerConnection.remoteDescription) {
+                console.warn('⚠️ Remote description не установлен! Сохраняем кандидат для добавления позже');
+                // Сохраняем кандидат для добавления после установки remote description
+                if (!peerConnection.pendingIceCandidates) {
+                    peerConnection.pendingIceCandidates = [];
+                }
+                peerConnection.pendingIceCandidates.push(new RTCIceCandidate(candidate));
+                console.log('💾 ICE кандидат сохранен, будет добавлен после установки remote description');
+                return;
+            }
+            
             try {
                 await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
                 console.log('✅ ICE кандидат успешно добавлен от:', sender);

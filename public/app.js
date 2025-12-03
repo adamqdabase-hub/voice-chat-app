@@ -161,6 +161,21 @@ function setupSocketEventListeners() {
             return;
         }
         
+        // Обновляем список пользователей - добавляем нового пользователя
+        if (usersList) {
+            const existingUsers = Array.from(usersList.querySelectorAll('li')).map(li => li.textContent);
+            if (!existingUsers.some(name => name.includes(newUsername))) {
+                const li = document.createElement('li');
+                li.textContent = newUsername;
+                usersList.appendChild(li);
+                if (userCount) {
+                    const currentCount = parseInt(userCount.textContent) || 1;
+                    userCount.textContent = currentCount + 1;
+                }
+                console.log('Добавлен новый пользователь в список:', newUsername);
+            }
+        }
+        
         // Проверяем, что соединение еще не создано
         if (peers.has(socketId)) {
             console.log('Peer connection уже существует для:', socketId);
@@ -419,10 +434,23 @@ function setupEventListeners() {
         // Получаем доступ к микрофону
         console.log('Запрос доступа к микрофону...');
         localStream = await navigator.mediaDevices.getUserMedia({ 
-            audio: true, 
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+            }, 
             video: false 
         });
         console.log('Доступ к микрофону получен');
+        
+        // Проверяем, что микрофон работает
+        const audioTracks = localStream.getAudioTracks();
+        if (audioTracks.length > 0) {
+            console.log('Микрофон активен:', audioTracks[0].label);
+            console.log('Микрофон включен:', audioTracks[0].enabled);
+        } else {
+            console.warn('Микрофон не найден!');
+        }
 
         // Присоединяемся к комнате
         console.log('Присоединение к комнате:', roomId);
@@ -573,6 +601,19 @@ function createPeerConnection(targetSocketId) {
         console.log('Получен аудио поток от:', targetSocketId);
         const [remoteStream] = event.streams;
         
+        // Проверяем, что поток содержит аудио треки
+        const audioTracks = remoteStream.getAudioTracks();
+        console.log('Получено аудио треков:', audioTracks.length);
+        if (audioTracks.length === 0) {
+            console.warn('Поток не содержит аудио треков!');
+            return;
+        }
+        
+        // Логируем состояние треков
+        audioTracks.forEach(track => {
+            console.log('Аудио трек:', track.label, 'включен:', track.enabled, 'muted:', track.muted, 'readyState:', track.readyState);
+        });
+        
         // Удаляем старый audio элемент, если есть
         if (audioElements.has(targetSocketId)) {
             const oldAudio = audioElements.get(targetSocketId);
@@ -587,18 +628,40 @@ function createPeerConnection(targetSocketId) {
         audio.autoplay = true;
         audio.volume = 1.0;
         
+        // Обработчики для отладки
+        audio.onloadedmetadata = () => {
+            console.log('Метаданные аудио загружены для:', targetSocketId, 'длительность:', audio.duration);
+        };
+        
+        audio.oncanplay = () => {
+            console.log('Аудио готово к воспроизведению для:', targetSocketId);
+        };
+        
+        audio.onplay = () => {
+            console.log('Аудио начато воспроизведение для:', targetSocketId);
+        };
+        
+        audio.onerror = (e) => {
+            console.error('Ошибка audio элемента для:', targetSocketId, e);
+        };
+        
         // Сохраняем для последующего управления
         audioElements.set(targetSocketId, audio);
         
         // Воспроизводим
         audio.play().then(() => {
             console.log('Аудио успешно воспроизводится от:', targetSocketId);
+            console.log('Громкость:', audio.volume, 'Воспроизведение:', !audio.paused, 'muted:', audio.muted);
         }).catch(err => {
             console.error('Ошибка воспроизведения аудио:', err);
             // Пробуем еще раз после взаимодействия пользователя
-            document.addEventListener('click', () => {
-                audio.play().catch(e => console.error('Повторная ошибка воспроизведения:', e));
-            }, { once: true });
+            const playOnClick = () => {
+                audio.play().then(() => {
+                    console.log('Аудио воспроизведено после клика');
+                }).catch(e => console.error('Повторная ошибка воспроизведения:', e));
+            };
+            document.addEventListener('click', playOnClick, { once: true });
+            document.addEventListener('touchstart', playOnClick, { once: true });
         });
     };
 

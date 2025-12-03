@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Голосовой Чат</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎤 Голосовой Чат</h1>
+            <p class="subtitle">Общайтесь с друзьями в реальном времени</p>
+        </div>
+
+        <div id="login-screen" class="screen active">
+            <div class="login-card">
+                <h2>Вход в комнату</h2>
+                <div class="form-group">
+                    <label for="username">Ваше имя:</label>
+                    <input type="text" id="username" placeholder="Введите ваше имя" maxlength="20">
+                </div>
+                <div class="form-group">
+                    <label for="room-id">ID комнаты:</label>
+                    <input type="text" id="room-id" placeholder="Введите ID комнаты" maxlength="20">
+                </div>
+                <div class="form-group" id="server-ip-group" style="display: none;">
+                    <label for="server-ip">IP/Адрес сервера (опционально):</label>
+                    <input type="text" id="server-ip" placeholder="Оставьте пустым для автоматического подключения" value="">
+                    <small style="color: #666; font-size: 0.85em;">
+                        Оставьте пустым - приложение подключится автоматически<br>
+                        Или укажите адрес сервера (localhost, IP или домен)
+                    </small>
+                </div>
+                <button id="join-btn" class="btn btn-primary">Присоединиться</button>
+                <button id="create-room-btn" class="btn btn-secondary">Создать новую комнату</button>
+            </div>
+        </div>
+
+        <div id="chat-screen" class="screen">
+            <div class="chat-header">
+                <div class="room-info">
+                    <h2>Комната: <span id="current-room-id"></span></h2>
+                    <p>Участников: <span id="user-count">1</span></p>
+                </div>
+                <button id="leave-btn" class="btn btn-danger">Покинуть комнату</button>
+            </div>
+
+            <div class="chat-content">
+                <div class="users-panel">
+                    <h3>Участники</h3>
+                    <ul id="users-list"></ul>
+                </div>
+
+                <div class="audio-controls">
+                    <div class="control-buttons">
+                        <button id="mute-btn" class="btn btn-control">
+                            <span class="icon">🔊</span>
+                            <span>Включить микрофон</span>
+                        </button>
+                        <button id="leave-audio-btn" class="btn btn-control btn-danger">
+                            <span class="icon">📞</span>
+                            <span>Отключиться</span>
+                        </button>
+                    </div>
+                    <div class="status">
+                        <div id="connection-status" class="status-indicator">Подключение...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
+
+

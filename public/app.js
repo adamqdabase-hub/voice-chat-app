@@ -832,11 +832,26 @@ function createPeerConnection(targetSocketId) {
         audio.srcObject = remoteStream;
         audio.autoplay = true;
         audio.volume = 1.0;
+        audio.muted = false; // Явно размучиваем audio элемент
+        
+        // КРИТИЧНО: Убеждаемся, что audio элемент не muted
+        console.log('🔊 Создан audio элемент, muted:', audio.muted, 'volume:', audio.volume);
         
         // Обработчики для отладки
         audio.onloadedmetadata = () => {
             console.log('Метаданные аудио загружены для:', targetSocketId, 'длительность:', audio.duration);
+            console.log('🔊 Audio элемент после загрузки - muted:', audio.muted, 'volume:', audio.volume, 'paused:', audio.paused);
         };
+        
+        // Отслеживаем изменения muted
+        Object.defineProperty(audio, 'muted', {
+            get: function() { return this._muted || false; },
+            set: function(value) {
+                console.log('🔊 Audio muted изменен на:', value, 'для:', targetSocketId);
+                this._muted = value;
+            }
+        });
+        audio._muted = false;
         
         audio.oncanplay = () => {
             console.log('Аудио готово к воспроизведению для:', targetSocketId);
@@ -853,17 +868,58 @@ function createPeerConnection(targetSocketId) {
         // Сохраняем для последующего управления
         audioElements.set(targetSocketId, audio);
         
+        // Создаем AudioContext для анализа уровня звука
+        let audioContext = null;
+        let analyser = null;
+        let dataArray = null;
+        
+        try {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            analyser = audioContext.createAnalyser();
+            analyser.fftSize = 256;
+            const source = audioContext.createMediaStreamSource(remoteStream);
+            source.connect(analyser);
+            dataArray = new Uint8Array(analyser.frequencyBinCount);
+            
+            // Проверяем уровень звука каждые 500мс
+            const checkAudioLevel = setInterval(() => {
+                analyser.getByteFrequencyData(dataArray);
+                const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
+                const max = Math.max(...dataArray);
+                
+                if (average > 5 || max > 10) {
+                    console.log('🔊 🔊 🔊 ЗВУК ЕСТЬ! Уровень:', average.toFixed(2), 'Максимум:', max, 'для:', targetSocketId);
+                } else {
+                    console.warn('🔇 НЕТ ЗВУКА! Уровень:', average.toFixed(2), 'Максимум:', max, 'для:', targetSocketId);
+                }
+            }, 500);
+            
+            // Останавливаем проверку через 30 секунд
+            setTimeout(() => clearInterval(checkAudioLevel), 30000);
+        } catch (error) {
+            console.warn('Не удалось создать AudioContext для анализа:', error);
+        }
+        
         // Воспроизводим
         audio.play().then(() => {
-            console.log('Аудио успешно воспроизводится от:', targetSocketId);
-            console.log('Громкость:', audio.volume, 'Воспроизведение:', !audio.paused, 'muted:', audio.muted);
+            console.log('✅ Аудио успешно воспроизводится от:', targetSocketId);
+            console.log('🔊 Громкость:', audio.volume, 'Воспроизведение:', !audio.paused, 'muted:', audio.muted);
+            console.log('🔊 Audio элемент srcObject:', audio.srcObject ? 'установлен' : 'null');
+            console.log('🔊 Audio элемент tracks:', remoteStream.getAudioTracks().length);
+            
+            // Принудительно размучиваем
+            audio.muted = false;
+            audio.volume = 1.0;
+            console.log('🔊 После принудительного размучивания - muted:', audio.muted, 'volume:', audio.volume);
         }).catch(err => {
-            console.error('Ошибка воспроизведения аудио:', err);
+            console.error('❌ Ошибка воспроизведения аудио:', err);
             // Пробуем еще раз после взаимодействия пользователя
             const playOnClick = () => {
+                audio.muted = false;
+                audio.volume = 1.0;
                 audio.play().then(() => {
-                    console.log('Аудио воспроизведено после клика');
-                }).catch(e => console.error('Повторная ошибка воспроизведения:', e));
+                    console.log('✅ Аудио воспроизведено после клика');
+                }).catch(e => console.error('❌ Повторная ошибка воспроизведения:', e));
             };
             document.addEventListener('click', playOnClick, { once: true });
             document.addEventListener('touchstart', playOnClick, { once: true });

@@ -120,6 +120,10 @@ function setupSocketEventListeners() {
         try {
             // Создаем mediasoup device
             if (!device) {
+                if (typeof mediasoupClient === 'undefined') {
+                    console.error('❌ mediasoupClient не загружен! Проверьте CSP настройки.');
+                    return;
+                }
                 device = new mediasoupClient.Device();
             }
 

@@ -215,7 +215,9 @@ function setupSocketEventListeners() {
     // Обработка предложения
     socket.on('offer', async (data) => {
         const { offer, sender, username: senderUsername } = data;
-        console.log('Получено предложение от:', senderUsername, sender);
+        console.log('📥 ===== ПОЛУЧЕНО ПРЕДЛОЖЕНИЕ (OFFER) =====');
+        console.log('📥 Получено предложение от:', senderUsername, sender);
+        console.log('📥 Offer данные:', offer);
         
         // Проверяем, что соединение еще не создано или в неправильном состоянии
         if (peers.has(sender)) {

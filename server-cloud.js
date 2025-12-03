@@ -85,27 +85,45 @@ io.on('connection', (socket) => {
 
   // WebRTC сигналинг - предложение
   socket.on('offer', (data) => {
+    console.log(`📤 [SERVER] Offer от ${socket.id} (${socket.username}) для ${data.target}`);
+    if (!data.target) {
+      console.error('❌ [SERVER] Offer без target!', data);
+      return;
+    }
     socket.to(data.target).emit('offer', {
       offer: data.offer,
       sender: socket.id,
       username: socket.username
     });
+    console.log(`✅ [SERVER] Offer переслан от ${socket.id} для ${data.target}`);
   });
 
   // WebRTC сигналинг - ответ
   socket.on('answer', (data) => {
+    console.log(`📥 [SERVER] Answer от ${socket.id} для ${data.target}`);
+    if (!data.target) {
+      console.error('❌ [SERVER] Answer без target!', data);
+      return;
+    }
     socket.to(data.target).emit('answer', {
       answer: data.answer,
       sender: socket.id
     });
+    console.log(`✅ [SERVER] Answer переслан от ${socket.id} для ${data.target}`);
   });
 
   // WebRTC сигналинг - ICE кандидаты
   socket.on('ice-candidate', (data) => {
+    console.log(`🧊 [SERVER] ICE candidate от ${socket.id} для ${data.target}`);
+    if (!data.target) {
+      console.error('❌ [SERVER] ICE candidate без target!', data);
+      return;
+    }
     socket.to(data.target).emit('ice-candidate', {
       candidate: data.candidate,
       sender: socket.id
     });
+    console.log(`✅ [SERVER] ICE candidate переслан от ${socket.id} для ${data.target}`);
   });
 
   // Отключение

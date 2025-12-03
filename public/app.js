@@ -196,6 +196,14 @@ function setupSocketEventListeners() {
                 
                 console.log('📤 Отправка предложения (offer) для:', socketId);
                 console.log('📤 Offer данные:', offer);
+                console.log('📤 Socket connected:', socket.connected);
+                console.log('📤 Socket id:', socket.id);
+                
+                if (!socket.connected) {
+                    console.error('❌ Socket не подключен! Не могу отправить offer');
+                    return;
+                }
+                
                 socket.emit('offer', {
                     target: socketId,
                     offer: offer
@@ -271,6 +279,14 @@ function setupSocketEventListeners() {
             console.log('✅ Local description установлен, состояние:', peerConnection.signalingState);
             
             console.log('📤 Отправка ответа (answer) для:', sender);
+            console.log('📤 Socket connected:', socket.connected);
+            console.log('📤 Socket id:', socket.id);
+            
+            if (!socket.connected) {
+                console.error('❌ Socket не подключен! Не могу отправить answer');
+                return;
+            }
+            
             socket.emit('answer', {
                 target: sender,
                 answer: answer
@@ -790,6 +806,13 @@ function createPeerConnection(targetSocketId) {
         if (event.candidate) {
             console.log('🧊 Локальный ICE кандидат создан для:', targetSocketId);
             console.log('🧊 ICE кандидат:', event.candidate);
+            console.log('🧊 Socket connected:', socket.connected);
+            
+            if (!socket.connected) {
+                console.error('❌ Socket не подключен! Не могу отправить ICE candidate');
+                return;
+            }
+            
             socket.emit('ice-candidate', {
                 target: targetSocketId,
                 candidate: event.candidate

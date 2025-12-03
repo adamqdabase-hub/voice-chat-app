@@ -85,11 +85,18 @@ io.on('connection', (socket) => {
 
   // WebRTC сигналинг - предложение
   socket.on('offer', (data) => {
-    console.log(`📤 [SERVER] Offer от ${socket.id} (${socket.username}) для ${data.target}`);
+    console.log(`📤 [SERVER] ===== ПОЛУЧЕН OFFER =====`);
+    console.log(`📤 [SERVER] Offer от ${socket.id} (${socket.username || 'без имени'}) для ${data.target}`);
+    console.log(`📤 [SERVER] Данные offer:`, JSON.stringify(data).substring(0, 200));
     if (!data.target) {
       console.error('❌ [SERVER] Offer без target!', data);
       return;
     }
+    if (!data.offer) {
+      console.error('❌ [SERVER] Offer без offer данных!', data);
+      return;
+    }
+    console.log(`📤 [SERVER] Пересылка offer от ${socket.id} для ${data.target}`);
     socket.to(data.target).emit('offer', {
       offer: data.offer,
       sender: socket.id,

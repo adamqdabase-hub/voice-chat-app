@@ -152,7 +152,7 @@ io.on('connection', async (socket) => {
         consumers: new Map(),
       });
 
-      // Отправляем информацию о транспортах клиенту
+      // Отправляем информацию о транспортах и RTP capabilities клиенту
       socket.emit('transport-created', {
         sendTransport: {
           id: sendTransport.id,
@@ -166,6 +166,7 @@ io.on('connection', async (socket) => {
           iceCandidates: recvTransport.iceCandidates,
           dtlsParameters: recvTransport.dtlsParameters,
         },
+        rtpCapabilities: router.rtpCapabilities,
       });
 
       // Обработка ICE кандидатов от клиента для send transport
@@ -223,16 +224,13 @@ io.on('connection', async (socket) => {
 
           callback({ id: producer.id });
 
-          // Создаем consumers для существующих producers в комнате
-          const otherUsers = Array.from(room.values()).filter(u => u.socketId !== socket.id);
-          for (const otherUser of otherUsers) {
-            const otherTransport = userTransports.get(otherUser.socketId);
-            if (otherTransport) {
-              for (const [producerId, otherProducer] of otherTransport.producers) {
-                await createConsumer(socket, otherProducer, otherUser.socketId, otherUser.username);
-              }
-            }
-          }
+      // Уведомляем других пользователей о новом producer
+      socket.to(roomId).emit('new-producer', {
+        producerId: producer.id,
+        socketId: socket.id,
+        username: username,
+        kind: kind,
+      });
         } catch (error) {
           console.error('Ошибка создания producer:', error);
           callback({ error: error.message });
@@ -292,6 +290,9 @@ io.on('connection', async (socket) => {
       // Отправляем список пользователей новому участнику
       const users = Array.from(room.values());
       socket.emit('room-users', users);
+      
+      // Также отправляем обновленный список всем в комнате
+      io.to(roomId).emit('room-users', users);
 
       console.log(`${username} присоединился к комнате ${roomId}`);
     } catch (error) {
@@ -300,25 +301,10 @@ io.on('connection', async (socket) => {
     }
   });
 
-  // Создание consumer для нового producer
-  socket.on('new-producer', async ({ producerId, socketId, username, kind }) => {
-    try {
-      // Находим producer
-      const producerTransport = userTransports.get(socketId);
-      if (!producerTransport || !producerTransport.producers.has(producerId)) {
-        return;
-      }
-
-      const producer = producerTransport.producers.get(producerId);
-      const userTransport = userTransports.get(socket.id);
-      
-      if (!userTransport) {
-        return;
-      }
-
-      await createConsumer(socket, producer, socketId, username);
-    } catch (error) {
-      console.error('Ошибка создания consumer для нового producer:', error);
+  socket.on('get-room-users', (roomId) => {
+    if (rooms.has(roomId)) {
+      const users = Array.from(rooms.get(roomId).values());
+      socket.emit('room-users', users);
     }
   });
 
@@ -355,24 +341,6 @@ io.on('connection', async (socket) => {
   });
 });
 
-// Вспомогательная функция для создания consumer
-async function createConsumer(socket, producer, producerSocketId, producerUsername) {
-  try {
-    const userTransport = userTransports.get(socket.id);
-    if (!userTransport) {
-      return;
-    }
-
-    // Запрашиваем rtpCapabilities у клиента
-    socket.emit('request-rtp-capabilities', {
-      producerId: producer.id,
-      producerSocketId: producerSocketId,
-      producerUsername: producerUsername,
-    });
-  } catch (error) {
-    console.error('Ошибка создания consumer:', error);
-  }
-}
 
 // Порт берется из переменной окружения или используется 3000
 const PORT = process.env.PORT || 3000;

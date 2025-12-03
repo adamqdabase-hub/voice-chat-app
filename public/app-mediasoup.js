@@ -1,25 +1,22 @@
-// Клиентский код для работы с медиа-сервером (mediasoup)
+// Клиент для mediasoup медиа-сервера (как Discord)
 let localStream = null;
-let socket = null;
+let device = null;
 let sendTransport = null;
 let recvTransport = null;
-let producers = new Map();
+let producer = null;
 let consumers = new Map();
 let audioElements = new Map();
 let currentRoomId = null;
 let username = null;
 let isMuted = false;
-let device = null;
 
 // Элементы DOM
 let loginScreen, chatScreen, usernameInput, roomIdInput, serverIpInput, joinBtn, createRoomBtn;
 let leaveBtn, muteBtn, leaveAudioBtn, usersList, userCount, currentRoomIdSpan, connectionStatus;
 
-// Инициализация после загрузки DOM
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('DOM загружен, инициализация...');
+    console.log('DOM загружен, инициализация mediasoup клиента...');
     
-    // Получаем элементы DOM
     loginScreen = document.getElementById('login-screen');
     chatScreen = document.getElementById('chat-screen');
     usernameInput = document.getElementById('username');
@@ -43,13 +40,12 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
     }
 
-    console.log('Все элементы DOM найдены');
     initializeApp();
 });
 
+let socket;
+
 function initializeApp() {
-    console.log('Инициализация приложения...');
-    
     if (typeof io === 'undefined') {
         console.error('Socket.io не загружен!');
         setTimeout(() => {
@@ -59,17 +55,13 @@ function initializeApp() {
         }, 1000);
         return;
     }
-
     initializeSocket();
-    setupEventListeners();
 }
 
 function initializeSocket() {
     if (socket && socket.connected) {
         socket.disconnect();
     }
-    
-    console.log('Инициализация Socket.io...');
     
     const CLOUD_SERVER = 'voice-chat-app-production-deba.up.railway.app';
     let defaultServer = 'localhost';
@@ -85,256 +77,281 @@ function initializeSocket() {
     }
     
     console.log('Подключение к серверу:', serverUrl);
+    
     socket = io(serverUrl, {
         transports: ['websocket', 'polling'],
         reconnection: true,
         reconnectionDelay: 1000,
-        reconnectionAttempts: 5,
+        reconnectionAttempts: 5
     });
 
+    setupSocketEventListeners();
+    setupEventListeners();
+}
+
+function setupSocketEventListeners() {
     socket.on('connect', () => {
-        console.log('Подключено к серверу:', socket.id);
+        console.log('✅ Подключено к серверу:', socket.id);
         if (connectionStatus) {
-            connectionStatus.textContent = 'Готово к подключению';
-        }
-    });
-
-    socket.on('connect_error', (error) => {
-        console.error('Ошибка подключения:', error);
-        if (connectionStatus) {
-            connectionStatus.textContent = 'Ошибка подключения';
+            connectionStatus.textContent = 'Подключено';
+            connectionStatus.className = 'status-indicator connected';
         }
     });
 
     socket.on('disconnect', () => {
-        console.log('Отключено от сервера');
+        console.log('❌ Отключено от сервера');
         if (connectionStatus) {
             connectionStatus.textContent = 'Отключено';
+            connectionStatus.className = 'status-indicator error';
         }
     });
 
-    // Обработчики медиа-сервера
-    socket.on('transport-created', async (data) => {
-        console.log('✅ Транспорты созданы на сервере');
-        await setupTransports(data);
+    socket.on('connect_error', (error) => {
+        console.error('❌ Ошибка подключения:', error);
+        if (connectionStatus) {
+            connectionStatus.textContent = 'Ошибка подключения';
+            connectionStatus.className = 'status-indicator error';
+        }
     });
 
-    socket.on('new-producer', async (data) => {
-        console.log('📢 Новый producer:', data);
-        await createConsumerForProducer(data);
+    socket.on('transport-created', async ({ sendTransport: sendData, recvTransport: recvData }) => {
+        console.log('✅ Транспорты созданы');
+        
+        try {
+            // Создаем mediasoup device
+            if (!device) {
+                device = new mediasoupClient.Device();
+            }
+
+            // Загружаем RTP capabilities (приходят в событии transport-created)
+            if (!rtpCapabilities) {
+                console.error('RTP capabilities не получены');
+                return;
+            }
+
+            await device.load({ routerRtpCapabilities: rtpCapabilities });
+            console.log('✅ Device загружен');
+
+            // Создаем send transport
+            sendTransport = device.createSendTransport({
+                id: sendData.id,
+                iceParameters: sendData.iceParameters,
+                iceCandidates: sendData.iceCandidates,
+                dtlsParameters: sendData.dtlsParameters,
+            });
+
+            sendTransport.on('connect', ({ dtlsParameters }, callback, errback) => {
+                socket.emit('connect-send-transport', { dtlsParameters }, (response) => {
+                    if (response.error) {
+                        errback(new Error(response.error));
+                    } else {
+                        callback();
+                    }
+                });
+            });
+
+            sendTransport.on('produce', async ({ kind, rtpParameters }, callback, errback) => {
+                try {
+                    socket.emit('produce', { kind, rtpParameters }, (response) => {
+                        if (response.error) {
+                            errback(new Error(response.error));
+                        } else {
+                            callback({ id: response.id });
+                        }
+                    });
+                } catch (error) {
+                    errback(error);
+                }
+            });
+
+            // Создаем recv transport
+            recvTransport = device.createRecvTransport({
+                id: recvData.id,
+                iceParameters: recvData.iceParameters,
+                iceCandidates: recvData.iceCandidates,
+                dtlsParameters: recvData.dtlsParameters,
+            });
+
+            recvTransport.on('connect', ({ dtlsParameters }, callback, errback) => {
+                socket.emit('connect-recv-transport', { dtlsParameters }, (response) => {
+                    if (response.error) {
+                        errback(new Error(response.error));
+                    } else {
+                        callback();
+                    }
+                });
+            });
+
+            // Создаем producer (отправка аудио)
+            if (localStream) {
+                const track = localStream.getAudioTracks()[0];
+                producer = await sendTransport.produce({ track });
+                console.log('✅ Producer создан:', producer.id);
+            }
+        } catch (error) {
+            console.error('Ошибка создания транспортов:', error);
+        }
+    });
+
+    socket.on('new-producer', async ({ producerId, socketId, username: producerUsername, kind }) => {
+        console.log('Новый producer:', producerId, 'от:', socketId);
+        
+        if (kind !== 'audio') return;
+        if (!recvTransport) return;
+
+        try {
+            socket.emit('consume', {
+                producerId,
+                rtpCapabilities: device.rtpCapabilities
+            }, async (response) => {
+                if (response.error) {
+                    console.error('Ошибка создания consumer:', response.error);
+                    return;
+                }
+
+                const consumer = await recvTransport.consume({
+                    id: response.id,
+                    producerId: response.producerId,
+                    kind: response.kind,
+                    rtpParameters: response.rtpParameters,
+                });
+
+                consumer.appData = { socketId, producerUsername };
+                consumers.set(producerId, consumer);
+
+                // Воспроизводим аудио
+                const stream = new MediaStream([consumer.track]);
+                const audio = new Audio();
+                audio.srcObject = stream;
+                audio.autoplay = true;
+                audio.volume = 1.0;
+                audio.muted = false;
+                
+                audio.play().then(() => {
+                    console.log('✅ Аудио воспроизводится от:', socketId);
+                }).catch(err => {
+                    console.error('❌ Ошибка воспроизведения:', err);
+                });
+
+                audioElements.set(socketId, audio);
+            });
+        } catch (error) {
+            console.error('Ошибка создания consumer:', error);
+        }
     });
 
     socket.on('room-users', (users) => {
-        console.log('Получен список пользователей:', users);
+        console.log('Пользователи в комнате:', users);
         updateUsersList(users);
     });
 
     socket.on('user-joined', (data) => {
-        console.log('Новый пользователь присоединился:', data);
-        // Обновим список позже через room-users
+        console.log('Пользователь присоединился:', data);
+        if (currentRoomId) {
+            socket.emit('get-room-users', currentRoomId);
+        }
     });
 
     socket.on('user-left', (socketId) => {
         console.log('Пользователь покинул комнату:', socketId);
-        removeUser(socketId);
+        // Находим и закрываем consumer по producerId
+        for (const [producerId, consumer] of consumers) {
+            if (consumer.appData && consumer.appData.socketId === socketId) {
+                consumer.close();
+                consumers.delete(producerId);
+            }
+        }
+        if (audioElements.has(socketId)) {
+            audioElements.get(socketId).pause();
+            audioElements.delete(socketId);
+        }
+        if (currentRoomId) {
+            socket.emit('get-room-users', currentRoomId);
+        }
     });
 
-    socket.on('request-rtp-capabilities', async (data) => {
-        console.log('Запрос RTP capabilities для producer:', data);
-        await handleRequestRtpCapabilities(data);
-    });
-}
-
-async function setupTransports(data) {
-    try {
-        const { sendTransport: sendData, recvTransport: recvData } = data;
-
-        // Создаем send transport
-        sendTransport = new RTCPeerConnection({
-            iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' }
-            ]
-        });
-
-        // Создаем recv transport
-        recvTransport = new RTCPeerConnection({
-            iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' }
-            ]
-        });
-
-        // Подключаем send transport
-        await sendTransport.setRemoteDescription(new RTCSessionDescription({
-            type: 'offer',
-            sdp: sendData.iceParameters
-        }));
-
-        const sendAnswer = await sendTransport.createAnswer();
-        await sendTransport.setLocalDescription(sendAnswer);
-
-        socket.emit('connect-send-transport', {
-            dtlsParameters: sendTransport.localDescription
-        }, (response) => {
-            if (response.success) {
-                console.log('✅ Send transport подключен');
-            }
-        });
-
-        // Подключаем recv transport
-        await recvTransport.setRemoteDescription(new RTCSessionDescription({
-            type: 'offer',
-            sdp: recvData.iceParameters
-        }));
-
-        const recvAnswer = await recvTransport.createAnswer();
-        await recvTransport.setLocalDescription(recvAnswer);
-
-        socket.emit('connect-recv-transport', {
-            dtlsParameters: recvTransport.localDescription
-        }, (response) => {
-            if (response.success) {
-                console.log('✅ Recv transport подключен');
-            }
-        });
-
-        // Добавляем обработчики ICE кандидатов
-        sendTransport.onicecandidate = (event) => {
-            if (event.candidate) {
-                // Отправляем кандидат на сервер
-            }
-        };
-
-        recvTransport.onicecandidate = (event) => {
-            if (event.candidate) {
-                // Отправляем кандидат на сервер
-            }
-        };
-
-    } catch (error) {
-        console.error('Ошибка настройки транспортов:', error);
-    }
-}
-
-async function produceAudio() {
-    if (!localStream || !sendTransport) {
-        console.error('Нет локального потока или транспорта');
-        return;
-    }
-
-    try {
-        const audioTrack = localStream.getAudioTracks()[0];
-        if (!audioTrack) {
-            console.error('Нет аудио трека');
-            return;
-        }
-
-        const producer = await sendTransport.addTrack(audioTrack, localStream);
-        producers.set(producer.id, producer);
-
-        // Получаем RTP параметры
-        const rtpParameters = producer.getParameters();
-
-        socket.emit('produce', {
-            kind: 'audio',
-            rtpParameters: rtpParameters
-        }, (response) => {
-            if (response.id) {
-                console.log('✅ Producer создан:', response.id);
-            }
-        });
-
-    } catch (error) {
-        console.error('Ошибка создания producer:', error);
-    }
-}
-
-async function createConsumerForProducer(data) {
-    try {
-        // Запрашиваем RTP capabilities у сервера
-        socket.emit('consume', {
-            producerId: data.producerId,
-            rtpCapabilities: device.rtpCapabilities
-        }, async (response) => {
-            if (response.error) {
-                console.error('Ошибка создания consumer:', response.error);
-                return;
-            }
-
-            const { id, producerId, kind, rtpParameters } = response;
-
-            // Создаем consumer на recv transport
-            const consumer = await recvTransport.addTrack(
-                new MediaStreamTrack({ kind, id: rtpParameters.mid }),
-                new MediaStream(),
-                rtpParameters
-            );
-
-            consumers.set(id, consumer);
-
-            // Воспроизводим аудио
-            const audio = new Audio();
-            audio.srcObject = consumer.track;
-            audio.autoplay = true;
-            audio.volume = 1.0;
-            audioElements.set(data.socketId, audio);
-
-            console.log('✅ Consumer создан и воспроизводится:', id);
-        });
-
-    } catch (error) {
-        console.error('Ошибка создания consumer:', error);
-    }
-}
-
-async function handleRequestRtpCapabilities(data) {
-    try {
-        if (!device) {
-            // Инициализируем device с RTP capabilities
-            // Это нужно сделать один раз при подключении
-        }
-
-        socket.emit('consume', {
-            producerId: data.producerId,
-            rtpCapabilities: device.rtpCapabilities
-        }, async (response) => {
-            if (response.error) {
-                console.error('Ошибка создания consumer:', response.error);
-                return;
-            }
-
-            await createConsumerFromResponse(response, data.producerSocketId);
-        });
-
-    } catch (error) {
-        console.error('Ошибка обработки запроса RTP capabilities:', error);
-    }
-}
-
-async function createConsumerFromResponse(response, socketId) {
-    try {
-        const { id, producerId, kind, rtpParameters } = response;
-
-        // Создаем MediaStreamTrack из RTP параметров
-        // Это упрощенная версия - в реальности нужна более сложная логика
-
-        const audio = new Audio();
-        // Здесь нужно правильно обработать RTP поток
-        audioElements.set(socketId, audio);
-
-        console.log('✅ Consumer создан для:', socketId);
-    } catch (error) {
-        console.error('Ошибка создания consumer из ответа:', error);
-    }
 }
 
 function setupEventListeners() {
-    createRoomBtn.addEventListener('click', () => {
-        const roomId = Math.random().toString(36).substring(2, 10);
-        roomIdInput.value = roomId;
+    createRoomBtn.addEventListener('click', async () => {
+        const randomId = Math.random().toString(36).substring(2, 8);
+        roomIdInput.value = randomId;
+        if (!usernameInput.value.trim()) {
+            usernameInput.value = 'Пользователь' + Math.floor(Math.random() * 1000);
+        }
+        joinBtn.click();
     });
 
     joinBtn.addEventListener('click', async () => {
-        await joinRoom();
+        const name = usernameInput.value.trim();
+        const roomId = roomIdInput.value.trim();
+
+        if (!name || !roomId) {
+            return;
+        }
+
+        if (!socket || !socket.connected) {
+            initializeSocket();
+            await new Promise((resolve) => {
+                if (socket.connected) {
+                    resolve();
+                } else {
+                    socket.once('connect', resolve);
+                    setTimeout(resolve, 3000);
+                }
+            });
+        }
+
+        if (!socket.connected) {
+            return;
+        }
+
+        username = name;
+        currentRoomId = roomId;
+
+        joinBtn.disabled = true;
+        joinBtn.textContent = 'Подключение...';
+        if (connectionStatus) {
+            connectionStatus.textContent = 'Запрос доступа к микрофону...';
+        }
+
+        try {
+            localStream = await navigator.mediaDevices.getUserMedia({ 
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                }
+            });
+
+            console.log('✅ Доступ к микрофону получен');
+            
+            localStream.getAudioTracks().forEach(track => {
+                track.enabled = true;
+            });
+
+            socket.emit('join-room', roomId, name);
+
+            loginScreen.classList.remove('active');
+            chatScreen.classList.add('active');
+            if (currentRoomIdSpan) {
+                currentRoomIdSpan.textContent = roomId;
+            }
+
+            if (connectionStatus) {
+                connectionStatus.textContent = 'Подключено';
+                connectionStatus.className = 'status-indicator connected';
+            }
+        } catch (error) {
+            console.error('Ошибка доступа к микрофону:', error);
+            if (connectionStatus) {
+                connectionStatus.textContent = 'Ошибка';
+                connectionStatus.className = 'status-indicator error';
+            }
+        } finally {
+            joinBtn.disabled = false;
+            joinBtn.textContent = 'Присоединиться';
+        }
     });
 
     leaveBtn.addEventListener('click', () => {
@@ -358,108 +375,77 @@ function setupEventListeners() {
             muteBtn.classList.toggle('muted', isMuted);
         }
     });
-}
 
-async function joinRoom() {
-    const name = usernameInput.value.trim();
-    const room = roomIdInput.value.trim();
+    usernameInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') roomIdInput.focus();
+    });
 
-    if (!name || !room) {
-        alert('Введите имя и ID комнаты');
-        return;
-    }
-
-    username = name;
-    currentRoomId = room;
-
-    try {
-        // Запрашиваем доступ к микрофону
-        localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        console.log('✅ Доступ к микрофону получен');
-
-        // Присоединяемся к комнате
-        socket.emit('join-room', room, name);
-
-        // Показываем экран чата
-        loginScreen.style.display = 'none';
-        chatScreen.style.display = 'block';
-        if (currentRoomIdSpan) {
-            currentRoomIdSpan.textContent = room;
-        }
-
-    } catch (error) {
-        console.error('Ошибка присоединения:', error);
-        alert('Не удалось получить доступ к микрофону');
-    }
+    roomIdInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') joinBtn.click();
+    });
 }
 
 function leaveRoom() {
-    // Закрываем все producers и consumers
-    producers.forEach(producer => producer.close());
-    consumers.forEach(consumer => consumer.close());
+    if (producer) {
+        producer.close();
+        producer = null;
+    }
     
-    // Закрываем транспорты
+    consumers.forEach(consumer => {
+        consumer.close();
+    });
+    consumers.clear();
+
     if (sendTransport) {
         sendTransport.close();
         sendTransport = null;
     }
+    
     if (recvTransport) {
         recvTransport.close();
         recvTransport = null;
     }
 
-    // Останавливаем локальный поток
-    if (localStream) {
-        localStream.getTracks().forEach(track => track.stop());
-        localStream = null;
-    }
-
-    // Очищаем аудио элементы
     audioElements.forEach(audio => {
         audio.pause();
         audio.srcObject = null;
     });
     audioElements.clear();
 
-    // Отключаемся от комнаты
-    if (socket && currentRoomId) {
+    if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+        localStream = null;
+    }
+
+    device = null;
+
+    if (currentRoomId) {
         socket.emit('leave-room', currentRoomId);
     }
 
-    // Показываем экран входа
-    loginScreen.style.display = 'block';
-    chatScreen.style.display = 'none';
-
-    producers.clear();
-    consumers.clear();
+    loginScreen.classList.add('active');
+    chatScreen.classList.remove('active');
     currentRoomId = null;
     username = null;
 }
 
-function updateUsersList(users) {
+function updateUsersList(users = null) {
     if (!usersList) return;
-
+    
     usersList.innerHTML = '';
-    users.forEach(user => {
-        const li = document.createElement('li');
-        li.textContent = user.username;
-        usersList.appendChild(li);
-    });
-
-    if (userCount) {
-        userCount.textContent = users.length;
+    
+    if (users && Array.isArray(users)) {
+        users.forEach(user => {
+            const li = document.createElement('li');
+            li.textContent = user.username || 'Без имени';
+            if (user.socketId === socket.id) {
+                li.classList.add('current-user');
+                li.textContent += ' (Вы)';
+            }
+            usersList.appendChild(li);
+        });
+        if (userCount) {
+            userCount.textContent = users.length;
+        }
     }
 }
-
-function removeUser(socketId) {
-    const audio = audioElements.get(socketId);
-    if (audio) {
-        audio.pause();
-        audio.srcObject = null;
-        audioElements.delete(socketId);
-    }
-    // Обновим список пользователей через room-users
-}
-
-
-

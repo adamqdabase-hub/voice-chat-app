@@ -533,9 +533,46 @@ function setupEventListeners() {
             audio: {
                 echoCancellation: true,
                 noiseSuppression: true,
-                autoGainControl: true
+                autoGainControl: true,
+                // КРИТИЧНО: Отключаем автоматическое заглушение
+                sampleRate: 48000,
+                channelCount: 1,
+                // Пытаемся получить поток без muted
+                googEchoCancellation: true,
+                googAutoGainControl: true,
+                googNoiseSuppression: true,
+                googHighpassFilter: true,
+                googTypingNoiseDetection: true
             }, 
             video: false 
+        });
+        
+        // КРИТИЧНО: Проверяем и исправляем muted треки СРАЗУ после получения
+        const tracks = localStream.getAudioTracks();
+        tracks.forEach(track => {
+            console.log('🎤 Проверка трека после getUserMedia:', track.label);
+            console.log('🎤 enabled:', track.enabled, 'muted:', track.muted);
+            
+            if (track.muted) {
+                console.error('❌ ТРЕК MUTED ПОСЛЕ getUserMedia! Это проблема браузера/системы!');
+                // Пытаемся размутить
+                track.enabled = true;
+                try {
+                    Object.defineProperty(track, 'muted', {
+                        value: false,
+                        writable: true,
+                        configurable: true
+                    });
+                } catch (e) {
+                    console.error('❌ Не удалось размутить трек:', e);
+                }
+            }
+            
+            // Отслеживаем изменения
+            track.onmute = () => {
+                console.error('❌ ❌ ❌ ТРЕК БЫЛ ЗАГЛУШЕН!');
+                track.enabled = true;
+            };
         });
         console.log('Доступ к микрофону получен');
         
@@ -1122,6 +1159,24 @@ function createPeerConnection(targetSocketId) {
             }
         } else if (peerConnection.iceConnectionState === 'checking') {
             console.log('🔄 ICE соединение проверяется для:', targetSocketId);
+            
+            // Проверяем, есть ли relay кандидаты
+            setTimeout(() => {
+                const stats = peerConnection.getStats();
+                stats.then(results => {
+                    let hasRelay = false;
+                    results.forEach(report => {
+                        if (report.type === 'local-candidate' && report.candidateType === 'relay') {
+                            hasRelay = true;
+                            console.log('✅ ✅ ✅ НАЙДЕН RELAY КАНДИДАТ! TURN работает!');
+                        }
+                    });
+                    if (!hasRelay) {
+                        console.warn('⚠️ ⚠️ ⚠️ RELAY КАНДИДАТЫ НЕ НАЙДЕНЫ! TURN не используется!');
+                        console.warn('⚠️ Это может быть причиной проблем с аудио через NAT/firewall');
+                    }
+                });
+            }, 3000);
         }
     };
     

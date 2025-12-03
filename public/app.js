@@ -223,9 +223,32 @@ function setupSocketEventListeners() {
     });
 
     // Обновление списка пользователей
-    socket.on('room-users', (users) => {
+    socket.on('room-users', async (users) => {
         console.log('Получен список пользователей:', users);
         updateUsersList(users);
+        
+        // Создаем peer connections для всех существующих пользователей
+        // (кроме себя)
+        for (const user of users) {
+            if (user.socketId !== socket.id && !peers.has(user.socketId)) {
+                console.log('Создание peer connection для существующего пользователя:', user.username, user.socketId);
+                
+                const peerConnection = createPeerConnection(user.socketId);
+                peers.set(user.socketId, peerConnection);
+                
+                try {
+                    const offer = await peerConnection.createOffer();
+                    await peerConnection.setLocalDescription(offer);
+                    
+                    socket.emit('offer', {
+                        target: user.socketId,
+                        offer: offer
+                    });
+                } catch (error) {
+                    console.error('Ошибка создания предложения для существующего пользователя:', error);
+                }
+            }
+        }
     });
 
     socket.on('user-left', (socketId) => {
@@ -460,8 +483,15 @@ function createPeerConnection(targetSocketId) {
 
     // Обработка входящего аудио
     peerConnection.ontrack = (event) => {
+        console.log('Получен аудио поток от:', targetSocketId);
         const [remoteStream] = event.streams;
-        // Аудио будет автоматически воспроизводиться через addTrack
+        // Создаем audio элемент для воспроизведения
+        const audio = new Audio();
+        audio.srcObject = remoteStream;
+        audio.autoplay = true;
+        audio.play().catch(err => {
+            console.error('Ошибка воспроизведения аудио:', err);
+        });
     };
 
     // Обработка ICE кандидатов

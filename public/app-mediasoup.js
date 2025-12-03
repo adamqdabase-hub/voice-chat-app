@@ -280,10 +280,18 @@ function setupEventListeners() {
     createRoomBtn.addEventListener('click', async () => {
         const randomId = Math.random().toString(36).substring(2, 8);
         roomIdInput.value = randomId;
+        
+        // Показываем уведомление об успешном создании комнаты
+        console.log(`✅ Создана комната: ${randomId}`);
+        
         if (!usernameInput.value.trim()) {
             usernameInput.value = 'Пользователь' + Math.floor(Math.random() * 1000);
         }
-        joinBtn.click();
+        
+        // Небольшая задержка перед автоматическим присоединением, чтобы пользователь увидел уведомление
+        setTimeout(() => {
+            joinBtn.click();
+        }, 300);
     });
 
     joinBtn.addEventListener('click', async () => {

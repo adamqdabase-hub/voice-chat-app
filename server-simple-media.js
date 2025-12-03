@@ -75,8 +75,18 @@ io.on('connection', (socket) => {
 
     const users = Array.from(room.values());
     socket.emit('room-users', users);
+    
+    // Также отправляем обновленный список всем в комнате
+    io.to(roomId).emit('room-users', users);
 
     console.log(`${username} присоединился к комнате ${roomId}`);
+  });
+  
+  socket.on('get-room-users', (roomId) => {
+    if (rooms.has(roomId)) {
+      const users = Array.from(rooms.get(roomId).values());
+      socket.emit('room-users', users);
+    }
   });
 
   // WebRTC сигналинг через сервер (как ретранслятор)

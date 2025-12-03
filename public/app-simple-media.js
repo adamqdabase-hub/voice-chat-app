@@ -138,25 +138,28 @@ function setupSocketEventListeners() {
             return;
         }
 
-        console.log('Создаем peer connection для нового пользователя:', socketId);
-        const peerConnection = createPeerConnection(socketId);
-        peers.set(socketId, peerConnection);
+        // Небольшая задержка перед созданием соединения
+        setTimeout(async () => {
+            console.log('Создаем peer connection для нового пользователя:', socketId);
+            const peerConnection = createPeerConnection(socketId);
+            peers.set(socketId, peerConnection);
 
-        try {
-            const offer = await peerConnection.createOffer({
-                offerToReceiveAudio: true,
-                offerToReceiveVideo: false
-            });
-            await peerConnection.setLocalDescription(offer);
-            
-            console.log('Отправка offer для:', socketId);
-            socket.emit('offer', {
-                offer: offer,
-                target: socketId
-            });
-        } catch (error) {
-            console.error('Ошибка создания offer:', error);
-        }
+            try {
+                const offer = await peerConnection.createOffer({
+                    offerToReceiveAudio: true,
+                    offerToReceiveVideo: false
+                });
+                await peerConnection.setLocalDescription(offer);
+                
+                console.log('Отправка offer для:', socketId);
+                socket.emit('offer', {
+                    offer: offer,
+                    target: socketId
+                });
+            } catch (error) {
+                console.error('Ошибка создания offer:', error);
+            }
+        }, 500);
     });
 
     socket.on('offer', async (data) => {
@@ -263,8 +266,12 @@ function setupSocketEventListeners() {
             audioElements.get(socketId).pause();
             audioElements.delete(socketId);
         }
-        updateUsersList();
+        // Запрашиваем обновленный список пользователей
+        if (currentRoomId) {
+            socket.emit('get-room-users', currentRoomId);
+        }
     });
+    
 }
 
 function setupEventListeners() {
@@ -272,13 +279,18 @@ function setupEventListeners() {
         const randomId = Math.random().toString(36).substring(2, 8);
         roomIdInput.value = randomId;
         
+        // Показываем уведомление об успешном создании комнаты
+        showNotification(`Создана комната: ${randomId}`, 'success');
+        
         // Автоматически заполняем имя, если пусто
         if (!usernameInput.value.trim()) {
             usernameInput.value = 'Пользователь' + Math.floor(Math.random() * 1000);
         }
         
-        // Автоматически присоединяемся к комнате
-        joinBtn.click();
+        // Небольшая задержка перед автоматическим присоединением, чтобы пользователь увидел уведомление
+        setTimeout(() => {
+            joinBtn.click();
+        }, 300);
     });
 
     joinBtn.addEventListener('click', async () => {
@@ -345,7 +357,8 @@ function setupEventListeners() {
             if (currentRoomIdSpan) {
                 currentRoomIdSpan.textContent = roomId;
             }
-            updateUsersList();
+            
+            // Список пользователей придет через событие 'room-users'
 
             if (connectionStatus) {
                 connectionStatus.textContent = 'Подключено';
@@ -529,11 +542,14 @@ function createPeerConnection(targetSocketId) {
 }
 
 function updateUsersList(users = null) {
-    if (users) {
-        usersList.innerHTML = '';
+    if (!usersList) return;
+    
+    usersList.innerHTML = '';
+    
+    if (users && Array.isArray(users)) {
         users.forEach(user => {
             const li = document.createElement('li');
-            li.textContent = user.username;
+            li.textContent = user.username || 'Без имени';
             if (user.socketId === socket.id) {
                 li.classList.add('current-user');
                 li.textContent += ' (Вы)';
@@ -542,6 +558,17 @@ function updateUsersList(users = null) {
         });
         if (userCount) {
             userCount.textContent = users.length;
+        }
+    } else {
+        // Если список не передан, показываем только текущего пользователя
+        if (username) {
+            const li = document.createElement('li');
+            li.textContent = username + ' (Вы)';
+            li.classList.add('current-user');
+            usersList.appendChild(li);
+        }
+        if (userCount) {
+            userCount.textContent = '1';
         }
     }
 }

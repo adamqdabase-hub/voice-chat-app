@@ -27,7 +27,7 @@ app.use(express.json());
 app.use((req, res, next) => {
   if (req.path.endsWith('.html') || req.path === '/' || req.path === '') {
     res.setHeader('Content-Security-Policy', 
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.socket.io https://*.socket.io https://unpkg.com chrome-extension://* edge-extension://*; " +
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.socket.io https://*.socket.io https://cdn.jsdelivr.net chrome-extension://* edge-extension://*; " +
       "connect-src 'self' ws://* wss://* http://* https://* chrome-extension://* edge-extension://*; " +
       "style-src 'self' 'unsafe-inline' chrome-extension://* edge-extension://*; " +
       "img-src 'self' data: https: chrome-extension://* edge-extension://*; " +

@@ -890,31 +890,51 @@ function createPeerConnection(targetSocketId) {
             audioElements.delete(targetSocketId);
         }
         
+        // КРИТИЧНО: Создаем новый поток БЕЗ muted треков
+        const cleanStream = new MediaStream();
+        audioTracks.forEach(track => {
+            // Создаем клон трека или используем оригинал
+            if (track.muted) {
+                console.warn('⚠️ Трек muted, пытаемся создать новый поток...');
+                // Пробуем получить новый трек из источника
+                // Но это может не сработать, так как трек уже muted
+            }
+            cleanStream.addTrack(track);
+        });
+        
+        console.log('🔊 Создан чистый поток с треками:', cleanStream.getAudioTracks().length);
+        cleanStream.getAudioTracks().forEach(t => {
+            console.log('🔊 Трек в чистом потоке - muted:', t.muted, 'enabled:', t.enabled);
+        });
+        
         // Создаем новый audio элемент для воспроизведения
         const audio = new Audio();
-        audio.srcObject = remoteStream;
+        audio.srcObject = cleanStream; // Используем чистый поток
         audio.autoplay = true;
         audio.volume = 1.0;
-        audio.muted = false; // Явно размучиваем audio элемент
         
         // КРИТИЧНО: Убеждаемся, что audio элемент не muted
+        // Пытаемся обойти ограничения браузера
+        try {
+            Object.defineProperty(audio, 'muted', {
+                value: false,
+                writable: false,
+                configurable: false
+            });
+        } catch (e) {
+            audio.muted = false;
+        }
+        
         console.log('🔊 Создан audio элемент, muted:', audio.muted, 'volume:', audio.volume);
         
         // Обработчики для отладки
         audio.onloadedmetadata = () => {
             console.log('Метаданные аудио загружены для:', targetSocketId, 'длительность:', audio.duration);
             console.log('🔊 Audio элемент после загрузки - muted:', audio.muted, 'volume:', audio.volume, 'paused:', audio.paused);
+            // Принудительно размучиваем после загрузки
+            audio.muted = false;
+            audio.volume = 1.0;
         };
-        
-        // Отслеживаем изменения muted
-        Object.defineProperty(audio, 'muted', {
-            get: function() { return this._muted || false; },
-            set: function(value) {
-                console.log('🔊 Audio muted изменен на:', value, 'для:', targetSocketId);
-                this._muted = value;
-            }
-        });
-        audio._muted = false;
         
         audio.oncanplay = () => {
             console.log('Аудио готово к воспроизведению для:', targetSocketId);
@@ -940,7 +960,10 @@ function createPeerConnection(targetSocketId) {
             audioContext = new (window.AudioContext || window.webkitAudioContext)();
             analyser = audioContext.createAnalyser();
             analyser.fftSize = 256;
-            const source = audioContext.createMediaStreamSource(remoteStream);
+            analyser.smoothingTimeConstant = 0.8;
+            
+            // Используем cleanStream вместо remoteStream
+            const source = audioContext.createMediaStreamSource(cleanStream);
             source.connect(analyser);
             dataArray = new Uint8Array(analyser.frequencyBinCount);
             
@@ -950,10 +973,22 @@ function createPeerConnection(targetSocketId) {
                 const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
                 const max = Math.max(...dataArray);
                 
+                // Также проверяем состояние треков
+                const tracks = cleanStream.getAudioTracks();
+                tracks.forEach(track => {
+                    if (track.muted) {
+                        console.error('❌ Трек все еще muted в чистом потоке!');
+                    }
+                });
+                
                 if (average > 5 || max > 10) {
                     console.log('🔊 🔊 🔊 ЗВУК ЕСТЬ! Уровень:', average.toFixed(2), 'Максимум:', max, 'для:', targetSocketId);
                 } else {
                     console.warn('🔇 НЕТ ЗВУКА! Уровень:', average.toFixed(2), 'Максимум:', max, 'для:', targetSocketId);
+                    console.warn('🔇 Проверка треков в потоке:');
+                    tracks.forEach(t => {
+                        console.warn('  - Трек:', t.label, 'muted:', t.muted, 'enabled:', t.enabled, 'readyState:', t.readyState);
+                    });
                 }
             }, 500);
             

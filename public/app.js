@@ -727,7 +727,7 @@ function createPeerConnection(targetSocketId) {
             }
         ],
         iceCandidatePoolSize: 10,
-        iceTransportPolicy: 'all' // Используем и STUN и TURN
+        iceTransportPolicy: 'relay' // ПРИНУДИТЕЛЬНО используем только TURN (обход NAT/firewall)
     });
 
     // Добавляем локальный поток
@@ -901,21 +901,59 @@ function createPeerConnection(targetSocketId) {
         
         if (peerConnection.iceConnectionState === 'failed') {
             console.error('❌ ICE соединение не удалось для:', targetSocketId);
-            console.error('❌ Проблема с NAT/firewall - пытаемся переподключиться...');
+            console.error('❌ Проблема с NAT/firewall - пересоздаем соединение...');
             
-            // Пытаемся восстановить соединение через restart ICE
+            // Пересоздаем соединение полностью
+            setTimeout(() => {
+                console.log('🔄 Пересоздание peer connection для:', targetSocketId);
+                const oldPeer = peers.get(targetSocketId);
+                if (oldPeer) {
+                    oldPeer.close();
+                    peers.delete(targetSocketId);
+                }
+                
+                // Удаляем audio элемент
+                if (audioElements && audioElements.has(targetSocketId)) {
+                    const audio = audioElements.get(targetSocketId);
+                    audio.pause();
+                    audio.srcObject = null;
+                    audioElements.delete(targetSocketId);
+                }
+                
+                // Создаем новое соединение
+                const newPeer = createPeerConnection(targetSocketId);
+                peers.set(targetSocketId, newPeer);
+                
+                // Если есть локальный поток, добавляем его
+                if (localStream) {
+                    localStream.getTracks().forEach(track => {
+                        newPeer.addTrack(track, localStream);
+                    });
+                }
+                
+                // Создаем новый offer
+                newPeer.createOffer().then(offer => {
+                    newPeer.setLocalDescription(offer);
+                    socket.emit('offer', {
+                        target: targetSocketId,
+                        offer: offer
+                    });
+                    console.log('✅ Новый offer отправлен после переподключения');
+                }).catch(error => {
+                    console.error('❌ Ошибка создания нового offer:', error);
+                });
+            }, 1000);
+        } else if (peerConnection.iceConnectionState === 'connected') {
+            console.log('✅ ICE соединение установлено для:', targetSocketId);
+        } else if (peerConnection.iceConnectionState === 'disconnected') {
+            console.warn('⚠️ ICE соединение разорвано для:', targetSocketId);
+            console.warn('⚠️ Пытаемся восстановить соединение через restart ICE...');
             try {
-                console.log('🔄 Пытаемся перезапустить ICE...');
                 peerConnection.restartIce();
                 console.log('✅ ICE перезапущен');
             } catch (error) {
                 console.error('❌ Ошибка перезапуска ICE:', error);
             }
-        } else if (peerConnection.iceConnectionState === 'connected') {
-            console.log('✅ ICE соединение установлено для:', targetSocketId);
-        } else if (peerConnection.iceConnectionState === 'disconnected') {
-            console.warn('⚠️ ICE соединение разорвано для:', targetSocketId);
-            console.warn('⚠️ Пытаемся восстановить соединение...');
         } else if (peerConnection.iceConnectionState === 'checking') {
             console.log('🔄 ICE соединение проверяется для:', targetSocketId);
         }

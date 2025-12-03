@@ -22,6 +22,22 @@ const io = socketIo(server, {
 app.use(cors());
 app.use(express.json());
 
+// Middleware для установки CSP заголовков (разрешаем inline скрипты)
+app.use((req, res, next) => {
+  // Устанавливаем CSP только для HTML файлов
+  if (req.path.endsWith('.html') || req.path === '/' || req.path === '') {
+    res.setHeader('Content-Security-Policy', 
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.socket.io https://*.socket.io; " +
+      "connect-src 'self' ws://* wss://* http://* https://*; " +
+      "style-src 'self' 'unsafe-inline'; " +
+      "img-src 'self' data: https:; " +
+      "font-src 'self' data:; " +
+      "default-src 'self'"
+    );
+  }
+  next();
+});
+
 // Хранилище комнат и пользователей (должно быть объявлено до использования)
 const rooms = new Map();
 

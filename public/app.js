@@ -774,17 +774,20 @@ function createPeerConnection(targetSocketId) {
             console.log('🎤 Локальный трек:', track.kind, 'label:', track.label);
             console.log('🎤 Локальный трек - enabled:', track.enabled, 'muted:', track.muted, 'readyState:', track.readyState);
             
-            // КРИТИЧНО: Убеждаемся, что трек не muted и enabled
+            // КРИТИЧНО: Убеждаемся, что трек не muted и enabled ПЕРЕД добавлением
             if (track.muted) {
-                console.warn('⚠️ Локальный трек muted! Пытаемся размутить...');
+                console.error('❌ ❌ ❌ ЛОКАЛЬНЫЙ ТРЕК MUTED! Это критическая проблема!');
+                console.error('❌ Трек будет отправлен muted, и друг не услышит звук!');
                 track.enabled = true;
                 try {
                     Object.defineProperty(track, 'muted', {
                         writable: true,
-                        value: false
+                        value: false,
+                        configurable: true
                     });
+                    console.log('✅ Попытка размутить через defineProperty');
                 } catch (e) {
-                    console.warn('Не удалось размутить через defineProperty:', e);
+                    console.error('❌ Не удалось размутить через defineProperty:', e);
                 }
             }
             
@@ -793,13 +796,21 @@ function createPeerConnection(targetSocketId) {
                 track.enabled = true;
             }
             
+            // КРИТИЧНО: Проверяем еще раз перед добавлением
+            if (track.muted) {
+                console.error('❌ ❌ ❌ ТРЕК ВСЕ ЕЩЕ MUTED! Не добавляем в peer connection!');
+                console.error('❌ Это означает, что микрофон заглушен в системе/браузере!');
+                return; // НЕ добавляем muted трек!
+            }
+            
             // Добавляем трек в peer connection
             peerConnection.addTrack(track, localStream);
-            console.log('✅ Локальный трек добавлен в peer connection');
+            console.log('✅ Локальный трек добавлен в peer connection (muted:', track.muted, ')');
             
             // Отслеживаем изменения
             track.onmute = () => {
-                console.error('❌ Локальный трек был заглушен!');
+                console.error('❌ ❌ ❌ ЛОКАЛЬНЫЙ ТРЕК БЫЛ ЗАГЛУШЕН!');
+                console.error('❌ Это означает, что микрофон был заглушен в системе!');
                 track.enabled = true;
             };
             

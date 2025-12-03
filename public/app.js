@@ -194,11 +194,13 @@ function setupSocketEventListeners() {
                 const offer = await peerConnection.createOffer();
                 await peerConnection.setLocalDescription(offer);
                 
-                console.log('Отправка предложения для:', socketId);
+                console.log('📤 Отправка предложения (offer) для:', socketId);
+                console.log('📤 Offer данные:', offer);
                 socket.emit('offer', {
                     target: socketId,
                     offer: offer
                 });
+                console.log('✅ Offer отправлен для:', socketId);
             } catch (error) {
                 console.error('Ошибка создания предложения:', error);
             }
@@ -254,17 +256,27 @@ function setupSocketEventListeners() {
         peers.set(sender, peerConnection);
 
         try {
+            console.log('📤 Установка remote description (offer) от:', sender);
             await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
-            const answer = await peerConnection.createAnswer();
-            await peerConnection.setLocalDescription(answer);
+            console.log('✅ Remote description установлен, состояние:', peerConnection.signalingState);
             
-            console.log('Отправка ответа для:', sender);
+            console.log('📤 Создание answer для:', sender);
+            const answer = await peerConnection.createAnswer();
+            console.log('✅ Answer создан:', answer);
+            
+            console.log('📤 Установка local description (answer) для:', sender);
+            await peerConnection.setLocalDescription(answer);
+            console.log('✅ Local description установлен, состояние:', peerConnection.signalingState);
+            
+            console.log('📤 Отправка ответа (answer) для:', sender);
             socket.emit('answer', {
                 target: sender,
                 answer: answer
             });
+            console.log('✅ Answer отправлен для:', sender);
         } catch (error) {
-            console.error('Ошибка обработки предложения:', error);
+            console.error('❌ Ошибка обработки предложения:', error);
+            console.error('❌ Детали ошибки:', error.message, error.stack);
             // Очищаем соединение при ошибке
             peerConnection.close();
             peers.delete(sender);
@@ -274,43 +286,57 @@ function setupSocketEventListeners() {
     // Обработка ответа
     socket.on('answer', async (data) => {
         const { answer, sender } = data;
-        console.log('Получен ответ от:', sender);
+        console.log('📥 Получен ответ (answer) от:', sender);
+        console.log('📥 Данные answer:', answer);
         const peerConnection = peers.get(sender);
         
         if (peerConnection) {
+            console.log('📥 Текущее состояние peer connection:', peerConnection.signalingState);
             try {
                 // Проверяем состояние перед установкой
                 if (peerConnection.signalingState === 'have-local-offer') {
                     await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
-                    console.log('Ответ успешно установлен для:', sender);
+                    console.log('✅ Ответ успешно установлен для:', sender);
+                    console.log('✅ Новое состояние после установки answer:', peerConnection.signalingState);
                 } else {
-                    console.warn('Неправильное состояние peer connection для ответа:', peerConnection.signalingState, 'от', sender);
+                    console.warn('⚠️ Неправильное состояние peer connection для ответа:', peerConnection.signalingState, 'от', sender);
+                    console.warn('⚠️ Ожидалось: have-local-offer, получено:', peerConnection.signalingState);
                 }
             } catch (error) {
-                console.error('Ошибка обработки ответа:', error);
+                console.error('❌ Ошибка обработки ответа:', error);
+                console.error('❌ Детали ошибки:', error.message, error.stack);
                 // Пробуем пересоздать соединение
-                console.log('Попытка пересоздания соединения для:', sender);
+                console.log('🔄 Попытка пересоздания соединения для:', sender);
                 if (peers.has(sender)) {
                     peers.get(sender).close();
                     peers.delete(sender);
                 }
             }
         } else {
-            console.warn('Peer connection не найдена для ответа от:', sender);
+            console.error('❌ Peer connection не найдена для ответа от:', sender);
+            console.error('❌ Доступные peer connections:', Array.from(peers.keys()));
         }
     });
 
     // Обработка ICE кандидатов
     socket.on('ice-candidate', async (data) => {
         const { candidate, sender } = data;
+        console.log('🧊 Получен ICE кандидат от:', sender);
+        console.log('🧊 ICE кандидат:', candidate);
         const peerConnection = peers.get(sender);
         
         if (peerConnection) {
+            console.log('🧊 Текущее состояние peer connection:', peerConnection.signalingState);
+            console.log('🧊 Текущее состояние ICE:', peerConnection.iceConnectionState);
             try {
                 await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+                console.log('✅ ICE кандидат успешно добавлен от:', sender);
             } catch (error) {
-                console.error('Ошибка добавления ICE кандидата:', error);
+                console.error('❌ Ошибка добавления ICE кандидата:', error);
+                console.error('❌ Детали ошибки:', error.message);
             }
+        } else {
+            console.warn('⚠️ Peer connection не найдена для ICE кандидата от:', sender);
         }
     });
 
@@ -760,10 +786,42 @@ function createPeerConnection(targetSocketId) {
     // Обработка ICE кандидатов
     peerConnection.onicecandidate = (event) => {
         if (event.candidate) {
+            console.log('🧊 Локальный ICE кандидат создан для:', targetSocketId);
+            console.log('🧊 ICE кандидат:', event.candidate);
             socket.emit('ice-candidate', {
                 target: targetSocketId,
                 candidate: event.candidate
             });
+            console.log('✅ ICE кандидат отправлен для:', targetSocketId);
+        } else {
+            console.log('🧊 Все ICE кандидаты собраны для:', targetSocketId);
+        }
+    };
+    
+    // Отслеживание состояния ICE соединения
+    peerConnection.oniceconnectionstatechange = () => {
+        console.log('🧊 Изменение состояния ICE соединения для:', targetSocketId);
+        console.log('🧊 Новое состояние ICE:', peerConnection.iceConnectionState);
+        console.log('🧊 Состояние signaling:', peerConnection.signalingState);
+        
+        if (peerConnection.iceConnectionState === 'failed') {
+            console.error('❌ ICE соединение не удалось для:', targetSocketId);
+        } else if (peerConnection.iceConnectionState === 'connected') {
+            console.log('✅ ICE соединение установлено для:', targetSocketId);
+        } else if (peerConnection.iceConnectionState === 'disconnected') {
+            console.warn('⚠️ ICE соединение разорвано для:', targetSocketId);
+        }
+    };
+    
+    // Отслеживание состояния соединения
+    peerConnection.onconnectionstatechange = () => {
+        console.log('🔗 Изменение состояния соединения для:', targetSocketId);
+        console.log('🔗 Новое состояние:', peerConnection.connectionState);
+        
+        if (peerConnection.connectionState === 'failed') {
+            console.error('❌ Соединение не удалось для:', targetSocketId);
+        } else if (peerConnection.connectionState === 'connected') {
+            console.log('✅ Соединение установлено для:', targetSocketId);
         }
     };
 

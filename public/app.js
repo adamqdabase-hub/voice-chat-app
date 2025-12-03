@@ -166,21 +166,31 @@ function setupSocketEventListeners() {
             return;
         }
         
-        // Создаем предложение
-        const peerConnection = createPeerConnection(socketId);
-        peers.set(socketId, peerConnection);
+        // Определяем, кто создает offer (пользователь с меньшим socket.id)
+        // Это предотвращает одновременное создание offer обоими пользователями
+        if (socket.id < socketId) {
+            console.log('Мы создаем offer для:', socketId, '(наш ID меньше)');
+            // Создаем предложение
+            const peerConnection = createPeerConnection(socketId);
+            peers.set(socketId, peerConnection);
 
-        try {
-            const offer = await peerConnection.createOffer();
-            await peerConnection.setLocalDescription(offer);
-            
-            console.log('Отправка предложения для:', socketId);
-            socket.emit('offer', {
-                target: socketId,
-                offer: offer
-            });
-        } catch (error) {
-            console.error('Ошибка создания предложения:', error);
+            try {
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
+                
+                console.log('Отправка предложения для:', socketId);
+                socket.emit('offer', {
+                    target: socketId,
+                    offer: offer
+                });
+            } catch (error) {
+                console.error('Ошибка создания предложения:', error);
+            }
+        } else {
+            console.log('Ждем offer от:', socketId, '(их ID меньше)');
+            // Создаем peer connection, но ждем offer от другого пользователя
+            const peerConnection = createPeerConnection(socketId);
+            peers.set(socketId, peerConnection);
         }
     });
 
@@ -281,20 +291,29 @@ function setupSocketEventListeners() {
                 // Небольшая задержка, чтобы убедиться, что localStream готов
                 await new Promise(resolve => setTimeout(resolve, 100));
                 
-                const peerConnection = createPeerConnection(user.socketId);
-                peers.set(user.socketId, peerConnection);
-                
-                try {
-                    const offer = await peerConnection.createOffer();
-                    await peerConnection.setLocalDescription(offer);
+                // Определяем, кто создает offer (пользователь с меньшим socket.id)
+                if (socket.id < user.socketId) {
+                    console.log('Мы создаем offer для существующего пользователя:', user.socketId);
+                    const peerConnection = createPeerConnection(user.socketId);
+                    peers.set(user.socketId, peerConnection);
                     
-                    console.log('Отправка предложения для существующего пользователя:', user.socketId);
-                    socket.emit('offer', {
-                        target: user.socketId,
-                        offer: offer
-                    });
-                } catch (error) {
-                    console.error('Ошибка создания предложения для существующего пользователя:', error);
+                    try {
+                        const offer = await peerConnection.createOffer();
+                        await peerConnection.setLocalDescription(offer);
+                        
+                        console.log('Отправка предложения для существующего пользователя:', user.socketId);
+                        socket.emit('offer', {
+                            target: user.socketId,
+                            offer: offer
+                        });
+                    } catch (error) {
+                        console.error('Ошибка создания предложения для существующего пользователя:', error);
+                    }
+                } else {
+                    console.log('Ждем offer от существующего пользователя:', user.socketId);
+                    // Создаем peer connection, но ждем offer от другого пользователя
+                    const peerConnection = createPeerConnection(user.socketId);
+                    peers.set(user.socketId, peerConnection);
                 }
             }
         }

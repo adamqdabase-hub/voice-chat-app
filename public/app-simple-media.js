@@ -268,10 +268,17 @@ function setupSocketEventListeners() {
 }
 
 function setupEventListeners() {
-    createRoomBtn.addEventListener('click', () => {
+    createRoomBtn.addEventListener('click', async () => {
         const randomId = Math.random().toString(36).substring(2, 8);
         roomIdInput.value = randomId;
-        showNotification(`Создана комната: ${randomId}`, 'success');
+        
+        // Автоматически заполняем имя, если пусто
+        if (!usernameInput.value.trim()) {
+            usernameInput.value = 'Пользователь' + Math.floor(Math.random() * 1000);
+        }
+        
+        // Автоматически присоединяемся к комнате
+        joinBtn.click();
     });
 
     joinBtn.addEventListener('click', async () => {

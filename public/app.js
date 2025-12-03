@@ -698,9 +698,36 @@ function createPeerConnection(targetSocketId) {
                 urls: 'turn:openrelay.metered.ca:443?transport=tcp',
                 username: 'openrelayproject',
                 credential: 'openrelayproject'
+            },
+            {
+                urls: 'turn:openrelay.metered.ca:80?transport=tcp',
+                username: 'openrelayproject',
+                credential: 'openrelayproject'
+            },
+            // Дополнительные TURN серверы
+            {
+                urls: 'turn:relay.metered.ca:80',
+                username: 'openrelayproject',
+                credential: 'openrelayproject'
+            },
+            {
+                urls: 'turn:relay.metered.ca:443',
+                username: 'openrelayproject',
+                credential: 'openrelayproject'
+            },
+            {
+                urls: 'turn:relay.metered.ca:80?transport=tcp',
+                username: 'openrelayproject',
+                credential: 'openrelayproject'
+            },
+            {
+                urls: 'turn:relay.metered.ca:443?transport=tcp',
+                username: 'openrelayproject',
+                credential: 'openrelayproject'
             }
         ],
-        iceCandidatePoolSize: 10
+        iceCandidatePoolSize: 10,
+        iceTransportPolicy: 'all' // Используем и STUN и TURN
     });
 
     // Добавляем локальный поток
@@ -870,13 +897,27 @@ function createPeerConnection(targetSocketId) {
         console.log('🧊 Изменение состояния ICE соединения для:', targetSocketId);
         console.log('🧊 Новое состояние ICE:', peerConnection.iceConnectionState);
         console.log('🧊 Состояние signaling:', peerConnection.signalingState);
+        console.log('🧊 Текущие ICE кандидаты:', peerConnection.localDescription?.sdp?.split('a=candidate').length - 1 || 0);
         
         if (peerConnection.iceConnectionState === 'failed') {
             console.error('❌ ICE соединение не удалось для:', targetSocketId);
+            console.error('❌ Проблема с NAT/firewall - пытаемся переподключиться...');
+            
+            // Пытаемся восстановить соединение через restart ICE
+            try {
+                console.log('🔄 Пытаемся перезапустить ICE...');
+                peerConnection.restartIce();
+                console.log('✅ ICE перезапущен');
+            } catch (error) {
+                console.error('❌ Ошибка перезапуска ICE:', error);
+            }
         } else if (peerConnection.iceConnectionState === 'connected') {
             console.log('✅ ICE соединение установлено для:', targetSocketId);
         } else if (peerConnection.iceConnectionState === 'disconnected') {
             console.warn('⚠️ ICE соединение разорвано для:', targetSocketId);
+            console.warn('⚠️ Пытаемся восстановить соединение...');
+        } else if (peerConnection.iceConnectionState === 'checking') {
+            console.log('🔄 ICE соединение проверяется для:', targetSocketId);
         }
     };
     

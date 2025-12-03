@@ -251,12 +251,10 @@ function setupSocketEventListeners() {
                         audio.srcObject = null;
                         audioElements.delete(sender);
                     }
-                    // Продолжаем обработку offer ниже
+                    // Продолжаем обработку offer ниже - создаем новое соединение
                 }
-            }
-            
-            // Если в процессе установки, пересоздаем только если нужно
-            if (state === 'have-local-offer') {
+            } else if (state === 'have-local-offer') {
+                // Если в процессе установки с локальным offer, пересоздаем
                 console.log('Пересоздаем соединение из-за неправильного состояния:', state);
                 existingPeer.close();
                 peers.delete(sender);
@@ -267,6 +265,7 @@ function setupSocketEventListeners() {
                     audio.srcObject = null;
                     audioElements.delete(sender);
                 }
+                // Продолжаем обработку offer ниже - создаем новое соединение
             } else if (state === 'have-remote-offer') {
                 // Если уже есть remote offer, значит мы уже обрабатываем предложение
                 console.log('Игнорируем предложение, уже обрабатываем remote offer');

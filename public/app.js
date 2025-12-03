@@ -764,7 +764,7 @@ function createPeerConnection(targetSocketId) {
             }
         ],
         iceCandidatePoolSize: 10,
-        iceTransportPolicy: 'relay' // ПРИНУДИТЕЛЬНО используем только TURN (обходим NAT/firewall)
+        iceTransportPolicy: 'all' // Используем все типы кандидатов (STUN + TURN)
     });
 
     // Добавляем локальный поток

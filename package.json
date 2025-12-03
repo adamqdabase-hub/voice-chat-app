@@ -7,6 +7,7 @@
     "start": "electron .",
     "server": "node server-cloud.js",
     "server-media": "node server-mediasoup.js",
+    "server-simple": "node server-simple-media.js",
     "dev": "electron . --dev",
     "build": "electron-builder",
     "build-win": "electron-builder --win",

@@ -19,6 +19,9 @@ const io = socketIo(server, {
 app.use(cors());
 app.use(express.json());
 
+// Хранилище комнат и пользователей (должно быть объявлено до использования)
+const rooms = new Map();
+
 // Статические файлы (если нужно)
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -30,9 +33,6 @@ app.get('/', (req, res) => {
     rooms: rooms.size
   });
 });
-
-// Хранилище комнат и пользователей
-const rooms = new Map();
 
 io.on('connection', (socket) => {
   console.log('Пользователь подключился:', socket.id);

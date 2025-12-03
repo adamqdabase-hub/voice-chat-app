@@ -78,12 +78,12 @@ function initializeSocket() {
     
     // Адрес облачного сервера (если настроен)
     // Чтобы использовать облачный сервер, раскомментируйте и укажите адрес:
-    // const CLOUD_SERVER = 'ваш-сервер.railway.app'; // или .onrender.com
+    const CLOUD_SERVER = 'voice-chat-app-production-deba.up.railway.app';
     
     // Получаем IP адрес сервера из поля ввода или используем localhost/облачный сервер
     let defaultServer = 'localhost';
     // Если настроен облачный сервер, раскомментируйте:
-    // defaultServer = CLOUD_SERVER;
+    defaultServer = CLOUD_SERVER;
     
     const serverIP = serverIpInput ? (serverIpInput.value.trim() || defaultServer) : defaultServer;
     
@@ -102,7 +102,10 @@ function initializeSocket() {
         transports: ['websocket', 'polling'],
         reconnection: true,
         reconnectionDelay: 1000,
-        reconnectionAttempts: 5
+        reconnectionAttempts: 5,
+        upgrade: true,
+        rememberUpgrade: true,
+        timeout: 20000
     });
 
     // Обработка подключения
@@ -115,7 +118,13 @@ function initializeSocket() {
 
     socket.on('connect_error', (error) => {
         console.error('Ошибка подключения к серверу:', error);
-        showNotification('Не удалось подключиться к серверу. Убедитесь, что сервер запущен.', 'error');
+        console.error('Детали ошибки:', {
+            message: error.message,
+            type: error.type,
+            description: error.description,
+            serverUrl: serverUrl
+        });
+        showNotification(`Не удалось подключиться: ${error.message || 'Проверьте адрес сервера'}`, 'error');
         if (connectionStatus) {
             connectionStatus.textContent = 'Ошибка подключения';
             connectionStatus.className = 'status-indicator';

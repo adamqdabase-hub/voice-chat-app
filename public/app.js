@@ -732,9 +732,72 @@ function createPeerConnection(targetSocketId) {
 
     // Добавляем локальный поток
     if (localStream) {
+        console.log('🎤 Добавление локального потока для:', targetSocketId);
         localStream.getTracks().forEach(track => {
+            console.log('🎤 Локальный трек:', track.kind, 'label:', track.label);
+            console.log('🎤 Локальный трек - enabled:', track.enabled, 'muted:', track.muted, 'readyState:', track.readyState);
+            
+            // КРИТИЧНО: Убеждаемся, что трек не muted и enabled
+            if (track.muted) {
+                console.warn('⚠️ Локальный трек muted! Пытаемся размутить...');
+                track.enabled = true;
+                try {
+                    Object.defineProperty(track, 'muted', {
+                        writable: true,
+                        value: false
+                    });
+                } catch (e) {
+                    console.warn('Не удалось размутить через defineProperty:', e);
+                }
+            }
+            
+            if (!track.enabled) {
+                console.warn('⚠️ Локальный трек disabled! Включаем...');
+                track.enabled = true;
+            }
+            
+            // Добавляем трек в peer connection
             peerConnection.addTrack(track, localStream);
+            console.log('✅ Локальный трек добавлен в peer connection');
+            
+            // Отслеживаем изменения
+            track.onmute = () => {
+                console.error('❌ Локальный трек был заглушен!');
+                track.enabled = true;
+            };
+            
+            track.onunmute = () => {
+                console.log('✅ Локальный трек размучен');
+            };
         });
+        
+        // Проверяем уровень звука в локальном потоке
+        try {
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const analyser = audioContext.createAnalyser();
+            analyser.fftSize = 256;
+            const source = audioContext.createMediaStreamSource(localStream);
+            source.connect(analyser);
+            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+            
+            const checkLocalAudio = setInterval(() => {
+                analyser.getByteFrequencyData(dataArray);
+                const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
+                const max = Math.max(...dataArray);
+                
+                if (average > 5 || max > 10) {
+                    console.log('🎤 🎤 🎤 ЛОКАЛЬНЫЙ ЗВУК ЕСТЬ! Уровень:', average.toFixed(2), 'Максимум:', max);
+                } else {
+                    console.warn('🔇 ЛОКАЛЬНОГО ЗВУКА НЕТ! Уровень:', average.toFixed(2), 'Максимум:', max);
+                }
+            }, 1000);
+            
+            setTimeout(() => clearInterval(checkLocalAudio), 30000);
+        } catch (error) {
+            console.warn('Не удалось создать AudioContext для локального потока:', error);
+        }
+    } else {
+        console.error('❌ Локальный поток отсутствует! Не могу добавить треки');
     }
 
     // Обработка входящего аудио

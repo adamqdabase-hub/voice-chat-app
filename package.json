@@ -5,12 +5,19 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
+    "server": "node server-cloud.js",
+    "server-media": "node server-mediasoup.js",
     "dev": "electron . --dev",
     "build": "electron-builder",
     "build-win": "electron-builder --win",
     "dist": "electron-builder --publish=never"
   },
-  "keywords": ["voice-chat", "webrtc", "socket.io", "electron"],
+  "keywords": [
+    "voice-chat",
+    "webrtc",
+    "socket.io",
+    "electron"
+  ],
   "author": "",
   "license": "MIT",
   "build": {
@@ -32,9 +39,11 @@
     ]
   },
   "dependencies": {
+    "cors": "^2.8.5",
     "express": "^4.18.2",
-    "socket.io": "^4.6.1",
-    "cors": "^2.8.5"
+    "mediasoup": "^3.19.12",
+    "mediasoup-client": "^3.18.1",
+    "socket.io": "^4.6.1"
   },
   "devDependencies": {
     "electron": "^27.0.0",
@@ -42,4 +51,3 @@
     "nodemon": "^3.0.1"
   }
 }
-

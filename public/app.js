@@ -727,7 +727,7 @@ function createPeerConnection(targetSocketId) {
             }
         ],
         iceCandidatePoolSize: 10,
-        iceTransportPolicy: 'relay' // ПРИНУДИТЕЛЬНО используем только TURN (обход NAT/firewall)
+        iceTransportPolicy: 'all' // Используем и STUN и TURN (пробуем все варианты)
     });
 
     // Добавляем локальный поток
@@ -1029,7 +1029,19 @@ function createPeerConnection(targetSocketId) {
         if (event.candidate) {
             console.log('🧊 Локальный ICE кандидат создан для:', targetSocketId);
             console.log('🧊 ICE кандидат:', event.candidate);
+            console.log('🧊 Тип кандидата:', event.candidate.type);
+            console.log('🧊 Протокол:', event.candidate.protocol);
+            console.log('🧊 Адрес:', event.candidate.address);
             console.log('🧊 Socket connected:', socket.connected);
+            
+            // Проверяем, является ли кандидат relay (TURN)
+            if (event.candidate.type === 'relay') {
+                console.log('✅ ✅ ✅ ИСПОЛЬЗУЕТСЯ TURN СЕРВЕР (relay) для:', targetSocketId);
+            } else if (event.candidate.type === 'srflx') {
+                console.log('ℹ️ Используется STUN сервер (srflx) для:', targetSocketId);
+            } else {
+                console.log('ℹ️ Локальный кандидат (host) для:', targetSocketId);
+            }
             
             if (!socket.connected) {
                 console.error('❌ Socket не подключен! Не могу отправить ICE candidate');

@@ -22,17 +22,18 @@ const io = socketIo(server, {
 app.use(cors());
 app.use(express.json());
 
-// Middleware для установки CSP заголовков (разрешаем inline скрипты)
+// Middleware для установки CSP заголовков (разрешаем inline скрипты и WebRTC)
 app.use((req, res, next) => {
   // Устанавливаем CSP только для HTML файлов
   if (req.path.endsWith('.html') || req.path === '/' || req.path === '') {
     res.setHeader('Content-Security-Policy', 
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.socket.io https://*.socket.io; " +
-      "connect-src 'self' ws://* wss://* http://* https://*; " +
-      "style-src 'self' 'unsafe-inline'; " +
-      "img-src 'self' data: https:; " +
-      "font-src 'self' data:; " +
-      "default-src 'self'"
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.socket.io https://*.socket.io chrome-extension://*; " +
+      "connect-src 'self' ws://* wss://* http://* https://* chrome-extension://*; " +
+      "style-src 'self' 'unsafe-inline' chrome-extension://*; " +
+      "img-src 'self' data: https: chrome-extension://*; " +
+      "font-src 'self' data: chrome-extension://*; " +
+      "media-src 'self' blob: mediastream: chrome-extension://*; " +
+      "default-src 'self' chrome-extension://*"
     );
   }
   next();

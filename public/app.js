@@ -1,5 +1,6 @@
 let localStream = null;
 let peers = new Map();
+let audioElements = new Map(); // Хранилище audio элементов для воспроизведения
 let currentRoomId = null;
 let username = null;
 let isMuted = false;
@@ -199,14 +200,25 @@ function setupSocketEventListeners() {
         const { offer, sender, username: senderUsername } = data;
         console.log('Получено предложение от:', senderUsername, sender);
         
-        // Проверяем, что соединение еще не создано
+        // Проверяем, что соединение еще не создано или в неправильном состоянии
         if (peers.has(sender)) {
             console.log('Peer connection уже существует для предложения от:', sender);
             const existingPeer = peers.get(sender);
-            if (existingPeer.signalingState === 'stable') {
-                // Пересоздаем соединение
+            const state = existingPeer.signalingState;
+            console.log('Текущее состояние соединения:', state);
+            
+            // Если соединение уже установлено (stable) или в процессе, пересоздаем
+            if (state === 'stable' || state === 'have-local-offer' || state === 'have-remote-offer') {
+                console.log('Пересоздаем соединение из-за неправильного состояния:', state);
                 existingPeer.close();
                 peers.delete(sender);
+                // Также удаляем audio элемент
+                if (audioElements && audioElements.has(sender)) {
+                    const audio = audioElements.get(sender);
+                    audio.pause();
+                    audio.srcObject = null;
+                    audioElements.delete(sender);
+                }
             } else {
                 console.log('Игнорируем предложение, соединение уже в процессе установки');
                 return;
@@ -491,6 +503,13 @@ function leaveRoom() {
     });
     peers.clear();
 
+    // Останавливаем все audio элементы
+    audioElements.forEach(audio => {
+        audio.pause();
+        audio.srcObject = null;
+    });
+    audioElements.clear();
+
     // Останавливаем локальный поток
     if (localStream) {
         localStream.getTracks().forEach(track => track.stop());
@@ -553,12 +572,33 @@ function createPeerConnection(targetSocketId) {
     peerConnection.ontrack = (event) => {
         console.log('Получен аудио поток от:', targetSocketId);
         const [remoteStream] = event.streams;
-        // Создаем audio элемент для воспроизведения
+        
+        // Удаляем старый audio элемент, если есть
+        if (audioElements.has(targetSocketId)) {
+            const oldAudio = audioElements.get(targetSocketId);
+            oldAudio.pause();
+            oldAudio.srcObject = null;
+            audioElements.delete(targetSocketId);
+        }
+        
+        // Создаем новый audio элемент для воспроизведения
         const audio = new Audio();
         audio.srcObject = remoteStream;
         audio.autoplay = true;
-        audio.play().catch(err => {
+        audio.volume = 1.0;
+        
+        // Сохраняем для последующего управления
+        audioElements.set(targetSocketId, audio);
+        
+        // Воспроизводим
+        audio.play().then(() => {
+            console.log('Аудио успешно воспроизводится от:', targetSocketId);
+        }).catch(err => {
             console.error('Ошибка воспроизведения аудио:', err);
+            // Пробуем еще раз после взаимодействия пользователя
+            document.addEventListener('click', () => {
+                audio.play().catch(e => console.error('Повторная ошибка воспроизведения:', e));
+            }, { once: true });
         });
     };
 
@@ -578,6 +618,7 @@ function createPeerConnection(targetSocketId) {
 // Обработчики Socket.io теперь в setupSocketEventListeners()
 
 function updateUsersList(users = null) {
+    console.log('Обновление списка пользователей:', users);
     if (users) {
         usersList.innerHTML = '';
         users.forEach(user => {
@@ -585,10 +626,24 @@ function updateUsersList(users = null) {
             li.textContent = user.username;
             if (user.socketId === socket.id) {
                 li.classList.add('current-user');
+                li.textContent += ' (Вы)';
             }
             usersList.appendChild(li);
         });
         userCount.textContent = users.length;
+        console.log('Список пользователей обновлен, всего:', users.length);
+    } else {
+        // Если users не передан, обновляем из текущего состояния peers
+        const currentUsers = Array.from(peers.keys()).map(socketId => ({ socketId }));
+        if (currentUsers.length > 0) {
+            usersList.innerHTML = '';
+            currentUsers.forEach(user => {
+                const li = document.createElement('li');
+                li.textContent = `Пользователь ${user.socketId.substring(0, 8)}...`;
+                usersList.appendChild(li);
+            });
+            userCount.textContent = currentUsers.length + 1; // +1 для себя
+        }
     }
 }
 

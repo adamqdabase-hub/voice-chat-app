@@ -154,6 +154,18 @@ function setupSocketEventListeners() {
         const { socketId, username: newUsername } = data;
         console.log('Новый пользователь присоединился:', newUsername, socketId);
         
+        // Проверяем, что это не мы сами
+        if (socketId === socket.id) {
+            console.log('Игнорируем событие user-joined для себя');
+            return;
+        }
+        
+        // Проверяем, что соединение еще не создано
+        if (peers.has(socketId)) {
+            console.log('Peer connection уже существует для:', socketId);
+            return;
+        }
+        
         // Создаем предложение
         const peerConnection = createPeerConnection(socketId);
         peers.set(socketId, peerConnection);
@@ -162,6 +174,7 @@ function setupSocketEventListeners() {
             const offer = await peerConnection.createOffer();
             await peerConnection.setLocalDescription(offer);
             
+            console.log('Отправка предложения для:', socketId);
             socket.emit('offer', {
                 target: socketId,
                 offer: offer
@@ -176,6 +189,20 @@ function setupSocketEventListeners() {
         const { offer, sender, username: senderUsername } = data;
         console.log('Получено предложение от:', senderUsername, sender);
         
+        // Проверяем, что соединение еще не создано
+        if (peers.has(sender)) {
+            console.log('Peer connection уже существует для предложения от:', sender);
+            const existingPeer = peers.get(sender);
+            if (existingPeer.signalingState === 'stable') {
+                // Пересоздаем соединение
+                existingPeer.close();
+                peers.delete(sender);
+            } else {
+                console.log('Игнорируем предложение, соединение уже в процессе установки');
+                return;
+            }
+        }
+        
         const peerConnection = createPeerConnection(sender);
         peers.set(sender, peerConnection);
 
@@ -184,12 +211,16 @@ function setupSocketEventListeners() {
             const answer = await peerConnection.createAnswer();
             await peerConnection.setLocalDescription(answer);
             
+            console.log('Отправка ответа для:', sender);
             socket.emit('answer', {
                 target: sender,
                 answer: answer
             });
         } catch (error) {
             console.error('Ошибка обработки предложения:', error);
+            // Очищаем соединение при ошибке
+            peerConnection.close();
+            peers.delete(sender);
         }
     });
 
@@ -201,10 +232,24 @@ function setupSocketEventListeners() {
         
         if (peerConnection) {
             try {
-                await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+                // Проверяем состояние перед установкой
+                if (peerConnection.signalingState === 'have-local-offer') {
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+                    console.log('Ответ успешно установлен для:', sender);
+                } else {
+                    console.warn('Неправильное состояние peer connection для ответа:', peerConnection.signalingState, 'от', sender);
+                }
             } catch (error) {
                 console.error('Ошибка обработки ответа:', error);
+                // Пробуем пересоздать соединение
+                console.log('Попытка пересоздания соединения для:', sender);
+                if (peers.has(sender)) {
+                    peers.get(sender).close();
+                    peers.delete(sender);
+                }
             }
+        } else {
+            console.warn('Peer connection не найдена для ответа от:', sender);
         }
     });
 
@@ -233,6 +278,9 @@ function setupSocketEventListeners() {
             if (user.socketId !== socket.id && !peers.has(user.socketId)) {
                 console.log('Создание peer connection для существующего пользователя:', user.username, user.socketId);
                 
+                // Небольшая задержка, чтобы убедиться, что localStream готов
+                await new Promise(resolve => setTimeout(resolve, 100));
+                
                 const peerConnection = createPeerConnection(user.socketId);
                 peers.set(user.socketId, peerConnection);
                 
@@ -240,6 +288,7 @@ function setupSocketEventListeners() {
                     const offer = await peerConnection.createOffer();
                     await peerConnection.setLocalDescription(offer);
                     
+                    console.log('Отправка предложения для существующего пользователя:', user.socketId);
                     socket.emit('offer', {
                         target: user.socketId,
                         offer: offer
